@@ -88,6 +88,28 @@ TICKER_BLACKLIST = {
 # 1. Newsletter discovery (Playwright)
 # ---------------------------------------------------------------------------
 
+def _ensure_playwright_browser() -> None:
+    """
+    Auto-install the Playwright Chromium browser if it isn't present yet.
+    Works on all platforms (Windows, macOS, Linux) by calling
+    ``python -m playwright install chromium`` via subprocess.
+    """
+    import subprocess
+    print("[Scraper] Playwright browser not found – installing Chromium (one-time setup)...")
+    result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Failed to install Playwright browser automatically.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}\n\n"
+            "Please run this command manually and then retry:\n"
+            f"    {sys.executable} -m playwright install chromium"
+        )
+    print("[Scraper] Chromium installed successfully.")
+
+
 def discover_newsletter_pdfs(pages: list[dict], max_newsletters: int | None = None) -> list[dict]:
     """
     Use Playwright to load each fund's newsletter listing page and
@@ -97,11 +119,21 @@ def discover_newsletter_pdfs(pages: list[dict], max_newsletters: int | None = No
         {"fund": str, "date": datetime, "url": str, "title": str}
     """
     from playwright.sync_api import sync_playwright
+    from playwright._impl._errors import Error as PlaywrightError
 
     results = []
 
+    def _launch_browser(p):
+        try:
+            return p.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            if "Executable doesn't exist" in str(exc):
+                _ensure_playwright_browser()
+                return p.chromium.launch(headless=True)
+            raise
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = _launch_browser(p)
         context = browser.new_context(
             user_agent=HEADERS["User-Agent"],
             locale="en-GB",
